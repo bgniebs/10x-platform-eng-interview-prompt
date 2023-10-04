@@ -8,10 +8,12 @@ WORKDIR /app
 # copy csv file
 COPY seattle-weather.csv /app/
 
+# Set backend filename
 ENV BACKEND_FILENAME="seattle-weather.csv"
 
 # go build and start
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 CMD ["/app/main"]
 
+# Expose port 3000
 EXPOSE 3000
