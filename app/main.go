@@ -52,17 +52,28 @@ var weatherIndex = make(map[string]WeatherRecList)
 // Initialize the CSV file backing store
 //
 // Notes: Since CSV is included and will be used, assume the column format and only do row validations
+//
+// Log fatal errors on initialization failure, alternatively can store failed state and return 500
 func initializeBackingStore() {
 	// Open file, defer closing till server exits
-	f, err := os.Open("seattle-weather.csv")
+	filename := os.Getenv("BACKEND_FILENAME")
+
+	if filename == "" {
+		log.Fatal("Enviroment variable for backend filename not found ")
+	}
+
+	f, err := os.Open(filename)
+
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("File backend open() error: ", err)
 	}
 
 	defer f.Close()
 
 	csvReader := csv.NewReader(f)
 	var lineCount int = 0
+	var successCount int = 0
+	var invalidCount int = 0
 
 	for {
 		rec, err := csvReader.Read()
@@ -73,6 +84,7 @@ func initializeBackingStore() {
 		}
 
 		if err != nil {
+			// File corruption, panic! Alternatively, can store failed initialization state
 			log.Fatal(err)
 		}
 
@@ -84,17 +96,24 @@ func initializeBackingStore() {
 
 		// Create and validate the record, add it to the record store, date index, and weather index
 		//
-		// TODO: since these are allocated on the HEAP need to clean up or just rely on OS to handle
+		// TODO: since these are allocated on the HEAP need to clean up on server exit or just rely on OS to handle
 		p := createWeatherRecord(rec)
+
+		if p == nil {
+			log.Println("Skipping invalid row at line: ", lineCount)
+			lineCount++
+			invalidCount++
+		}
 
 		populateRecordStore(p)
 		populateDateIndex(p)
 		populateWeatherIndex(p)
 
 		lineCount++
+		successCount++
 	}
 
-	log.Println("Backing store initialized, linecount processed: ", lineCount)
+	log.Println("Backing store initialized, rows successfully processed: ", successCount, ", invalid row count: ", invalidCount)
 }
 
 // Store record in global list store
@@ -107,7 +126,8 @@ func populateDateIndex(rec *WeatherRec) {
 	val, exists := dateIndex[rec.Date]
 
 	if exists {
-		log.Fatal("Error invalid file: Duplicate date found. Record: ", val)
+		log.Println("Error invalid file: Duplicate date found. Record: ", val)
+		return
 	}
 
 	dateIndex[rec.Date] = rec
@@ -125,24 +145,26 @@ func populateWeatherIndex(rec *WeatherRec) {
 func createWeatherRecord(rec []string) *WeatherRec {
 	precipitation, err := strconv.ParseFloat(rec[1], 64)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Invalid precipitation column. Error: ", err)
+		return nil
 	}
 
 	tempMax, err := strconv.ParseFloat(rec[2], 64)
 	if err != nil {
-
-		log.Fatal(err)
+		log.Println("Invalid max temp column. Error: ", err)
+		return nil
 	}
 
 	tempMin, err := strconv.ParseFloat(rec[3], 64)
 	if err != nil {
-
-		log.Fatal(err)
+		log.Println("Invalid min temp column. Error: ", err)
+		return nil
 	}
 
 	wind, err := strconv.ParseFloat(rec[4], 64)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Invalid wind column. Error: ", err)
+		return nil
 	}
 
 	return &WeatherRec{
