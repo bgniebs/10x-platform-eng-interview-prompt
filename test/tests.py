@@ -114,4 +114,4 @@ if response.status != 404:
     print("TEST GET filter by date: Failed")
     raise ValueError("Invalid response code: " + response.status + " expected 404")
 
-print("Test GET filter by date: success")
+print("Test GET filter by date and weather: success")
