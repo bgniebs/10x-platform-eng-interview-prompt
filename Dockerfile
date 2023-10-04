@@ -16,4 +16,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 CMD ["/app/main"]
 
 # Expose port 3000
+# TODO export port in ENV and update listen call in go
 EXPOSE 3000

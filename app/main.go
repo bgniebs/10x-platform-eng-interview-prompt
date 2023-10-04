@@ -103,6 +103,7 @@ func initializeBackingStore() {
 			log.Println("Skipping invalid row at line: ", lineCount)
 			lineCount++
 			invalidCount++
+			continue
 		}
 
 		populateRecordStore(p)
