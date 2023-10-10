@@ -39,7 +39,7 @@ if response.status != 200:
 # Ensure count is expected to 3
 if len(jresults) != 3:
     print("TEST GET all with limit: Failed")
-    raise ValueError("Unexpected size of results: " + len(jresults))
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
 
 print("Test GET all with limit: success")
 
@@ -75,7 +75,7 @@ if response.status != 200:
 # Ensure count is expected to 5
 if len(jresults) != 5:
     print("TEST GET filter by weather and limit: Failed")
-    raise ValueError("Unexpected size of results: " + len(jresults))
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
 
 print("Test GET filter by weather and limit: success")
 
@@ -115,3 +115,141 @@ if response.status != 404:
     raise ValueError("Invalid response code: " + response.status + " expected 404")
 
 print("Test GET filter by date and weather: success")
+
+
+# Test filter by date range inclusive
+# 2015-12-26->2015-12-30
+# expected results = 5
+print("Test GET filter by date range inclusive: Start")
+connection.request("GET", "/query?date>=2015-12-26&date<=2015-12-30")
+response = connection.getresponse()
+
+results = response.read().decode()
+
+# Ensure valid json response
+jresults = json.loads(results)
+
+if response.status != 200:
+    print("TEST GET filter by date: Failed")
+    raise ValueError("Invalid response code: " + response.status + " expected 200")
+
+# Ensure count is expected to 5
+if len(jresults) != 5:
+    print("TEST GET filter by date range inclusive: Failed")
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
+
+print("Test GET filter by date range inclusive: success")
+
+# Test filter by date range exclusive
+# 2015-12-26->2015-12-30
+# expected results = 3
+print("Test GET filter by date range exclusive: Start")
+connection.request("GET", "/query?date>2015-12-26&date<2015-12-30")
+response = connection.getresponse()
+
+results = response.read().decode()
+
+# Ensure valid json response
+jresults = json.loads(results)
+
+if response.status != 200:
+    print("TEST GET filter by date: Failed")
+    raise ValueError("Invalid response code: " + response.status + " expected 200")
+
+# Ensure count is expected to 3
+if len(jresults) != 3:
+    print("TEST GET filter by date range exclusive: Failed")
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
+
+print("Test GET filter by date range exclusive: success")
+
+
+# Test filter by date range no upper bound
+# expected results = 6
+print("Test GET filter by date range no upper bound: Start")
+connection.request("GET", "/query?date>=2015-12-26")
+response = connection.getresponse()
+
+results = response.read().decode()
+
+# Ensure valid json response
+jresults = json.loads(results)
+
+if response.status != 200:
+    print("TEST GET filter by date: Failed")
+    raise ValueError("Invalid response code: " + response.status + " expected 200")
+
+# Ensure count is expected to 6
+if len(jresults) != 6:
+    print("TEST GET filter by date range no upper: Failed")
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
+
+print("Test GET filter by date range no upper: success")
+
+# Test filter by date range no lower bound
+# expected results = 1456
+print("Test GET filter by date range no lower bound: Start")
+connection.request("GET", "/query?date<=2015-12-26")
+response = connection.getresponse()
+
+results = response.read().decode()
+
+# Ensure valid json response
+jresults = json.loads(results)
+
+if response.status != 200:
+    print("TEST GET filter by date: Failed")
+    raise ValueError("Invalid response code: " + response.status + " expected 200")
+
+# Ensure count is expected to 1456
+if len(jresults) != 1456:
+    print("TEST GET filter by date range no lower: Failed")
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
+
+print("Test GET filter by date range no lower: success")
+
+# Test filter by date range with limit
+# expected results = 5
+print("Test GET filter by date range with limit: Start")
+connection.request("GET", "/query?date<=2015-12-26&limit=5")
+response = connection.getresponse()
+
+results = response.read().decode()
+
+# Ensure valid json response
+jresults = json.loads(results)
+
+if response.status != 200:
+    print("TEST GET filter by date with limit: Failed")
+    raise ValueError("Invalid response code: " + response.status + " expected 200")
+
+# Ensure count is expected to 1456
+if len(jresults) != 5:
+    print("TEST GET filter by date range with limit: Failed")
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
+
+print("Test GET filter by date range with limit: success")
+
+
+# Test filter by date range with limit
+# expected results = 638
+print("Test GET filter by date range with weather: Start")
+connection.request("GET", "/query?date<=2015-12-26&weather=sun")
+response = connection.getresponse()
+
+results = response.read().decode()
+
+# Ensure valid json response
+jresults = json.loads(results)
+
+if response.status != 200:
+    print("TEST GET filter by date with weather: Failed")
+    raise ValueError("Invalid response code: " + response.status + " expected 200")
+
+# Ensure count is expected to 638
+if len(jresults) != 638:
+    print("TEST GET filter by date range with weather: Failed")
+    raise ValueError("Unexpected size of results: " + str(len(jresults)))
+
+# TODO: iterate each value and ensure sun
+print("Test GET filter by date range with weather: success")

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -35,9 +36,11 @@ type ResponsePayload struct {
 
 // Structure containing known query parameters
 type QueryParameters struct {
-	Limit   int64
-	Date    string
-	Weather string
+	Limit     int64
+	Date      string
+	Weather   string
+	DateLower string
+	DateUpper string
 }
 
 // Global record store, entire list of all records
@@ -48,6 +51,9 @@ var dateIndex = make(map[string]*WeatherRec)
 
 // Global weather index, hashmap where key is weather and value is list of records with same weather
 var weatherIndex = make(map[string]WeatherRecList)
+
+var dateMinValue time.Time
+var dateMaxValue time.Time
 
 // Initialize the CSV file backing store
 //
@@ -106,6 +112,7 @@ func initializeBackingStore() {
 			continue
 		}
 
+		populateDateMetadata(p)
 		populateRecordStore(p)
 		populateDateIndex(p)
 		populateWeatherIndex(p)
@@ -132,6 +139,19 @@ func populateDateIndex(rec *WeatherRec) {
 	}
 
 	dateIndex[rec.Date] = rec
+}
+
+// Update metadata about min and max dates
+func populateDateMetadata(rec *WeatherRec) {
+	// record is already valid at this point
+	newDate, _ := time.Parse("2006-01-02", rec.Date)
+	if dateMinValue.IsZero() || newDate.Before(dateMinValue) {
+		dateMinValue = newDate
+	}
+
+	if dateMaxValue.IsZero() || newDate.After(dateMinValue) {
+		dateMaxValue = newDate
+	}
 }
 
 // Update the weather index list to include
@@ -177,38 +197,195 @@ func createWeatherRecord(rec []string) *WeatherRec {
 		Weather:       rec[5]}
 }
 
-// Get the well-known query string parameters and validate them
-func getQueryStringParameters(r *http.Request) (QueryParameters, error) {
-	limitParam := r.URL.Query().Get("limit")
-	dateParam := r.URL.Query().Get("date")
-	weatherParam := r.URL.Query().Get("weather")
+// weather param parsing
+func parseWeatherParam(param string, qp *QueryParameters) error {
+	if qp.Weather != "" {
+		return errors.New("Duplicate weather parameter supplied, only 1 weather parameter allowed")
+	}
 
-	var qp = QueryParameters{Limit: -1, Date: "", Weather: ""}
+	_, weatherValue, found := strings.Cut(param, "weather=")
 
-	if parameterExists(&limitParam) {
-		limit, err := strconv.ParseInt(limitParam, 0, 64)
+	// Valid weather parameter found
+	if found {
+		qp.Weather = weatherValue
+	} else {
+		return errors.New("Invalid weather parameter supplied, parameter must in format weather=value")
+	}
+
+	return nil
+}
+
+// date parameter parsing state machine
+func parseDateParam(param string, qp *QueryParameters) error {
+	_, dateUpperValue, found := strings.Cut(param, "date<=")
+
+	if found {
+		if qp.DateUpper != "" {
+			return errors.New("Duplicate date upper range parameter supplied, only 1 date upper range parameter allowed")
+		}
+
+		if qp.Date != "" {
+			return errors.New("Date range parameter supplied, when single date filter parameter already supplied")
+		}
+
+		_, err := time.Parse("2006-01-02", dateUpperValue)
+
+		if err != nil {
+			return errors.New("Invalid lower bound for date parameter supplied, parameter must be in format date<=YYYY-MM-DD")
+		} else {
+			qp.DateUpper = dateUpperValue
+			return nil
+		}
+	}
+
+	_, dateLowerValue, found := strings.Cut(param, "date>=")
+
+	if found {
+		if qp.DateLower != "" {
+			return errors.New("Duplicate date lower range parameter supplied, only 1 date upper range parameter allowed")
+		}
+
+		if qp.Date != "" {
+			return errors.New("Date range parameter supplied, when single date filter parameter already supplied")
+		}
+
+		_, err := time.Parse("2006-01-02", dateLowerValue)
+
+		if err != nil {
+			return errors.New("Invalid lower bound for date parameter supplied, parameter must be in format date>=YYYY-MM-DD")
+		} else {
+			qp.DateLower = dateLowerValue
+			return nil
+		}
+	}
+
+	_, dateUpperValueExclusive, found := strings.Cut(param, "date<")
+
+	if found {
+		if qp.DateUpper != "" {
+			return errors.New("Duplicate date upper range parameter supplied, only 1 date upper range parameter allowed")
+		}
+
+		if qp.Date != "" {
+			return errors.New("Date range parameter supplied, when single date filter parameter already supplied")
+		}
+
+		dateParse, err := time.Parse("2006-01-02", dateUpperValueExclusive)
+
+		if err != nil {
+			return errors.New("Invalid upper bound for date parameter supplied, parameter must be in format date<YYYY-MM-DD")
+		} else {
+			// Exclusive date so subtract 1 day
+			qp.DateUpper = dateParse.AddDate(0, 0, -1).Format("2006-01-02")
+			return nil
+		}
+	}
+
+	_, dateLowerValueExclusive, found := strings.Cut(param, "date>")
+
+	if found {
+		if qp.DateLower != "" {
+			return errors.New("Duplicate date lower range parameter supplied, only 1 date upper range parameter allowed")
+		}
+
+		if qp.Date != "" {
+			return errors.New("Date range parameter supplied, when single date filter parameter already supplied")
+		}
+
+		dateParse, err := time.Parse("2006-01-02", dateLowerValueExclusive)
+
+		if err != nil {
+			return errors.New("Invalid lower bound for date parameter supplied, parameter must be in format date>YYYY-MM-DD")
+		} else {
+			// Exclusive range so add 1 day
+			qp.DateLower = dateParse.AddDate(0, 0, 1).Format("2006-01-02")
+			return nil
+		}
+	}
+
+	_, dateSingle, found := strings.Cut(param, "date=")
+
+	if found {
+		if qp.Date != "" {
+			return errors.New("Duplicate date parameter supplied, only 1 date parameter allowed")
+		}
+
+		if qp.DateLower != "" || qp.DateUpper != "" {
+			return errors.New("Single date constraint supplied, when range date parameters already supplied")
+		}
+
+		_, err := time.Parse("2006-01-02", dateSingle)
+
+		if err != nil {
+			return errors.New("Invalid date parameter supplied, parameter must be in format date=YYYY-MM-DD")
+		} else {
+			qp.Date = dateSingle
+			return nil
+		}
+	}
+
+	return errors.New("Invalid date parameter, valid operators for date parameter are =, <=, <, >=, >")
+}
+
+// Limit parameter parsing
+func parseLimitParam(param string, qp *QueryParameters) error {
+	_, limitValue, found := strings.Cut(param, "limit=")
+
+	if found {
+		if qp.Limit != -1 {
+			return errors.New("Duplicate limit parameter supplied, only 1 limit parameter allowed")
+		}
+
+		limit, err := strconv.ParseInt(limitValue, 0, 64)
 
 		if err != nil || limit <= 0 {
-			return qp, errors.New("Invalid limit parameter supplied, parameter must be a postive and non-zero integer")
+			return errors.New("Invalid limit parameter supplied, parameter must be a postive and non-zero integer")
 		} else {
 			qp.Limit = limit
 		}
+	} else {
+		return errors.New("Invalid limit parameter supplied, parameter must in format limit=value")
 	}
 
-	if parameterExists(&dateParam) {
-		_, err := time.Parse("2006-01-02", dateParam)
+	return nil
+}
 
-		if err != nil {
-			return qp, errors.New("Invalid date parameter supplied, parameter must be in format YYYY-MM-DD")
-		} else {
-			qp.Date = dateParam
+// Get the well-known query string parameters and validate them
+func getQueryStringParameters(r *http.Request) (QueryParameters, error) {
+	var qp = QueryParameters{Limit: -1, Date: "", Weather: "", DateLower: "", DateUpper: ""}
+	querystring := r.URL.RawQuery
+
+	params := strings.Split(querystring, "&")
+
+	for _, param := range params {
+		// weather parameter
+		if strings.Contains(param, "weather") {
+			err := parseWeatherParam(param, &qp)
+
+			if err != nil {
+				return qp, err
+			}
+		}
+
+		if strings.Contains(param, "date") {
+			err := parseDateParam(param, &qp)
+
+			if err != nil {
+				return qp, err
+			}
+		}
+
+		if strings.Contains(param, "limit") {
+			err := parseLimitParam(param, &qp)
+
+			if err != nil {
+				return qp, err
+			}
 		}
 	}
 
-	// Take weather parameter as-is since arbitary string and no need to do lookup here
-	qp.Weather = weatherParam
+	log.Println("Query Paremeters: Date: ", qp.Date, " DateLower: ", qp.DateLower, " DateUpper: ", qp.DateUpper, " Weather: ", qp.Weather, " Limit: ", qp.Limit)
 
-	log.Println("Query Paremeters: Date: ", qp.Date, " Weather: ", qp.Weather, " Limit: ", qp.Limit)
 	return qp, nil
 }
 
@@ -283,6 +460,65 @@ func getDateFilter(resp *ResponsePayload, qp *QueryParameters) {
 	log.Println("Date filter applied, record(s) processed: ", processedrecordStore)
 }
 
+// Filter records by date range using the date filter supplied
+func getDateRangeFilter(resp *ResponsePayload, qp *QueryParameters) {
+	var curDate = dateMinValue
+	var maxDate = dateMaxValue
+	var limitExists = qp.Limit > -1
+	var processedrecordStore int64 = 0
+	var processingComplete = false
+
+	if qp.DateLower != "" {
+		lowerBound, _ := time.Parse("2006-01-02", qp.DateLower)
+
+		// If the lower bound is after the min date then apply lower bound filter
+		if curDate.Before(lowerBound) {
+			curDate = lowerBound
+		}
+	}
+
+	if qp.DateUpper != "" {
+		upperBound, _ := time.Parse("2006-01-02", qp.DateUpper)
+
+		// If the max bound is after the max date then apply max bound filter
+		if maxDate.After(upperBound) {
+			maxDate = upperBound
+		}
+	}
+
+	for !processingComplete {
+		// Break if limit has been applied
+		if limitExists && processedrecordStore >= qp.Limit {
+			processingComplete = true
+			continue
+		}
+
+		// Break if range is complete
+		if curDate.After(maxDate) {
+			processingComplete = true
+			continue
+		}
+
+		val, exists := dateIndex[curDate.Format("2006-01-02")]
+
+		if exists {
+			if parameterExists(&qp.Weather) {
+				if val.Weather == qp.Weather {
+					resp.Results = append(resp.Results, val)
+					processedrecordStore++
+				}
+			} else {
+				resp.Results = append(resp.Results, val)
+				processedrecordStore++
+			}
+		}
+
+		curDate = curDate.AddDate(0, 0, 1)
+	}
+
+	log.Println("Date range filter applied, record(s) processed: ", processedrecordStore)
+}
+
 // Filter by weather tag, apply limit is present in parameters
 func getWeatherFilter(resp *ResponsePayload, qp *QueryParameters) {
 	var limitExists = qp.Limit > -1
@@ -333,6 +569,8 @@ func handleGet(w http.ResponseWriter, r *http.Request) {
 
 	if parameterExists(&qp.Date) {
 		getDateFilter(&response, &qp)
+	} else if parameterExists(&qp.DateLower) || parameterExists(&qp.DateUpper) {
+		getDateRangeFilter(&response, &qp)
 	} else if parameterExists(&qp.Weather) {
 		getWeatherFilter(&response, &qp)
 	} else {

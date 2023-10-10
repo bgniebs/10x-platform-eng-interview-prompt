@@ -1,4 +1,4 @@
-FROM golang:1.6-alpine
+FROM golang:1.21.1-alpine
 
 # make app directory and add contents
 RUN mkdir /app 
@@ -7,6 +7,7 @@ WORKDIR /app
 
 # copy csv file
 COPY seattle-weather.csv /app/
+COPY go.mod /app/
 
 # Set backend filename
 ENV BACKEND_FILENAME="seattle-weather.csv"
